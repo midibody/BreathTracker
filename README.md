@@ -52,6 +52,8 @@ The firmware:
 * filters out high‑frequency noise and gross movements
 * extracts low‑frequency oscillations
 * detects breathing cycles and computes respiration rate
+
+ Data from accelerometer, with derivate computation to detect moves:
 <img width="758" height="383" alt="image" src="https://github.com/user-attachments/assets/31b94dbc-5c9e-4ea9-9848-9a62d11e30ba" />
 
 ### Movement vs Breathing Separation
