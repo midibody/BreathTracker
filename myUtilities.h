@@ -1,8 +1,18 @@
-#include <nrf_sdm.h>
 
 #define NO_CLICK 0
 #define LONG_CLICK  1
 #define SHORT_CLICK 2
+
+// LED COLORS
+#define RGB_LED_RED       0b0000001
+#define RGB_LED_GREEN     0b0000010
+#define RGB_LED_BLUE      0b0000100
+
+#define RGB_LED_WHITE     0b0000111
+#define RGB_LED_YELLOW    0b0000011
+#define RGB_LED_CYAN      0b0000110
+#define RGB_LED_PURPLE    0b0000101
+
 
 static bool     gBtnLast      = false;
 static bool     gBtnActive    = false;
@@ -12,16 +22,125 @@ static uint32_t gPressStartMs = 0;
 static const uint32_t LONG_CLICK_MIN_MS = 1500;
 static const uint32_t DEBOUNCE_MS       = 30;
 
+char aInputText[64];
+
+// Wrapper for functions Serial.print(ln)
+#ifdef USE_USB
+
+template<typename T>
+inline size_t serialPrint(const T& value) {
+  return Serial.print(value);
+}
+
+template<typename T>
+inline size_t serialPrint(const T& value, int base) {
+  return Serial.print(value, base);
+}
+
+inline size_t serialPrint(double value, int digits) {
+  return Serial.print(value, digits);
+}
+
+inline size_t serialPrint(const char* s) {
+  return Serial.print(s);
+}
+
+template<typename T>
+inline size_t serialPrintln(const T& value) {
+  return Serial.println(value);
+}
+
+template<typename T>
+inline size_t serialPrintln(const T& value, int base) {
+  return Serial.println(value, base);
+}
+
+inline size_t serialPrintln(double value, int digits) {
+  return Serial.println(value, digits);
+}
+
+inline size_t serialPrintln(const char* s) {
+  return Serial.println(s);
+}
+
+inline size_t serialPrintln(void) {
+  return Serial.println();
+}
+
+#else
+
+template<typename T>
+inline size_t serialPrint(const T&) { return 0; }
+
+template<typename T>
+inline size_t serialPrint(const T&, int) { return 0; }
+
+inline size_t serialPrint(double, int) { return 0; }
+
+inline size_t serialPrint(const char*) { return 0; }
+
+template<typename T>
+inline size_t serialPrintln(const T&) { return 0; }
+
+template<typename T>
+inline size_t serialPrintln(const T&, int) { return 0; }
+
+inline size_t serialPrintln(double, int) { return 0; }
+
+inline size_t serialPrintln(const char*) { return 0; }
+
+inline size_t serialPrintln(void) { return 0; }
+
+#endif
+
+#ifdef USE_USB //------------------------------
+//***************************************
+uint16_t readSerialInput()
+{
+  uint8_t idx = 0;
+  char c;
+
+  aInputText[0] = 0;
+
+  while (Serial.available() > 0) {
+    c = Serial.read();
+
+    // Fin de ligne → chaîne terminée
+    if (c == '\n' || c == '\r') {
+      if (idx > 0) {
+        aInputText[idx] = '\0'; 
+      }
+    }
+    else {
+     
+      if (idx < sizeof(aInputText) - 1) {
+        aInputText[idx++] = c;
+      }
+      
+    }
+  }
+return idx;
+}
+
+#else
+uint16_t readSerialInput()
+{ return 0; }
+
+#endif
+
 //***************************************
 void dump_memory(uint32_t addr, size_t n) 
 //***************************************
 {
+  char a[16];
+
   const uint8_t *p = (const uint8_t*)(uintptr_t)addr;
+
   for (size_t i = 0; i < n; i++) {
-    if (i % 16 == 0) { Serial.printf("\n0x%08lX: ", (unsigned long)(addr + i)); }
-    Serial.printf("%02X ", p[i]);
+    if (i % 16 == 0) { sprintf (a, "\n0x%08lX: ", (unsigned long)(addr + i) ); serialPrint (a); }
+    sprintf(a, "%02X ", p[i]); serialPrint(a);
   }
-  Serial.println();
+  serialPrintln();
 }
 
 /*
@@ -40,8 +159,9 @@ void toBinary8(uint8_t v, char *buf) {
   buf[8] = '\0';
 }
 
-//*******************
+//**********************************
 void flashLed(uint16_t c, uint16_t d)
+//**********************************
 {
   uint16_t i;
 
@@ -53,6 +173,43 @@ void flashLed(uint16_t c, uint16_t d)
     if (i<c-1) delay (d); 
    }
 }
+//***********
+void rgbLedInit()
+//**********
+{
+  pinMode (LED_RED, OUTPUT);
+  pinMode (LED_GREEN, OUTPUT);
+  pinMode (LED_BLUE, OUTPUT);
+
+  digitalWrite(LED_RED, HIGH);
+  digitalWrite(LED_GREEN, HIGH);
+  digitalWrite(LED_BLUE, HIGH);
+}
+
+//******************************
+void rgbLedSet (uint8_t color , bool on)
+//******************************
+{
+  if (color & RGB_LED_RED) digitalWrite(LED_RED, !on);
+  if (color & RGB_LED_GREEN) digitalWrite(LED_GREEN, !on);
+  if (color & RGB_LED_BLUE) digitalWrite(LED_BLUE, !on);
+}
+
+//**********************************
+void rgbLedFlash(uint8_t color, uint16_t count, uint16_t d)
+//**********************************
+{
+  uint16_t i;
+
+  for (i=0; i < count ; i++)
+   {
+    rgbLedSet(color , true); 
+    delay(5);// Led on during 5 ms
+    rgbLedSet(color , false); 
+    if ( i < count - 1) delay (d); 
+   }
+}
+
 //=================================================
 void motorStart(uint16_t duration, uint16_t pwm)
 //=================================================
@@ -79,7 +236,7 @@ bool fSwitchedPressed(uint16_t &v)
 
   // Front montant : appui
   if (btn && !gBtnLast) {
-    //Serial.println(">> CLICK-> Front montant");
+    //serialPrintln(">> CLICK-> Front montant");
     gPressStartMs = millis();
     gBtnActive = true;
     gLongFired = false;
@@ -93,7 +250,7 @@ bool fSwitchedPressed(uint16_t &v)
       gLongFired = true;
       v = LONG_CLICK;
       gBtnLast = btn;
-      //Serial.println(">> CLICK-> LONG");
+      //serialPrintln(">> CLICK-> LONG");
       return true;
     }
   }
@@ -113,7 +270,7 @@ bool fSwitchedPressed(uint16_t &v)
     if (dt >= DEBOUNCE_MS) {
       v = SHORT_CLICK;
       gBtnLast = btn;
-      //Serial.println(">> CLICK-> SHORT");
+      //serialPrintln(">> CLICK-> SHORT");
       return true;
     }
   }
@@ -122,7 +279,7 @@ bool fSwitchedPressed(uint16_t &v)
   return false;
 }
 
-
+/*
 //**********************
 bool serialIsActive()
 //**********************
@@ -132,6 +289,7 @@ bool serialIsActive()
   // Si dtr() n’existe pas sur ton core, commente la ligne et garde juste (bool)Serial.
   return (bool)Serial && Serial.dtr();
 }
+
 
 //******************************
 bool isSoftDeviceEnabled(void) 
@@ -143,6 +301,9 @@ bool isSoftDeviceEnabled(void)
   }
   return (enabled != 0);
 }
+*/
+
+
 //**********************
 bool wokeFromSystemOff()
 //**********************
@@ -300,3 +461,4 @@ float sliding_slope_update(SlidingSlope* ss, float y) {
 
   return slope;
 }
+

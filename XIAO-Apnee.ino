@@ -1,17 +1,19 @@
-#include <Arduino.h>
-
 #include "common.h"
 
 //***************************************
 // VARIABLES
-
 uint32_t programStartMs;
 uint32_t lastTimeAddRecord=0;
 uint32_t lastTimeLedBlink=0;
 bool fCycleStart = false;
+uint16_t counterToRead=-1;
+uint16_t acceleroMax = 0;
+float vPower = 0;
+bool usbPower = false;
+char aDebug[512]; // to store debug text
 
 //***************************************
-// INCLUDES
+// 
 #include "myRtcLib.h"
 #include "myUtilities.h"
 #include "myImuLib.h"
@@ -22,11 +24,14 @@ bool fCycleStart = false;
 void longClickEvent()
 //*******************
 {
-if (fPrintDebug) Serial.println(">LONG CLICK");
+if (fPrintDebug) serialPrintln(">LONG CLICK -> SHUTDOWN");
 
 storeDataRecords();
-motorStart(1000,MOTOR_SPEED_HIGH);  delay(200);  motorStart(1000,MOTOR_SPEED_HIGH); delay(200);  motorStart(1000,MOTOR_SPEED_HIGH);
-flashLed(3,100);
+rgbLedFlash (RGB_LED_RED , 2 ,100);
+
+motorStart(300,MOTOR_SPEED_NORMAL);  delay(200);  motorStart(300,MOTOR_SPEED_NORMAL); //delay(200);  motorStart(200,MOTOR_SPEED_NORMAL);
+
+delay(2000); // put it in case the button is pressed longer than motor duration and switch can be still pressed when calling systemOff (triggering system on again)...
 
 gotoSystemOff_WakeupOnSwitch();
 }
@@ -35,7 +40,7 @@ gotoSystemOff_WakeupOnSwitch();
 void shortClickEvent()
 //*******************
 {
-if (fPrintDebug) Serial.println(">SHORT CLICK");
+if (fPrintDebug) serialPrintln(">SHORT CLICK-> I'M ALIVE");
 flashLed(2,200);
 
 displayRecordsScreen();
@@ -48,33 +53,37 @@ void checkSerialChar()
 {
 char c;
 int value = 0; // default we read first page
+uint8_t color; 
+bool fInitialPrintDebug;
 
-  if (Serial.available() > 0) {
-    char c = Serial.read();
-    if (fPrintDebug) 
-     {
-      if (c>='a'&& (c<='z')) {Serial.print ("CMD->"); Serial.println(c); }
+if (readSerialInput() ) {
+  //serialPrint(aInputText[0]);
 
-     }
-    switch (c) {
+    switch (aInputText[0]) {
 
       case '?': // Help on commands
-        Serial.println ("HELP: \n a: read Flash-dont load data \n c: display data in Csv\n d: Display Data\n e:erase flash (1st page) \n m: Memory dump \n r: Read All Memory\n s: Search Flash Records \n t: Test Flash \n w: write to flash\n x: reset records to zero \n\n");
+        serialPrintln ("HELP: \n a: read Flash structure- but dont load data \n c: display data in CSV\n d: Display Data\n e:erase flash (1st page) \n m: Memory dump \n r[#counter]: Read All Memory, if #counter specified reads records for a specific storage index\n s: Search Flash Records \n t: Test Flash \n w: write to flash\n x: reset records to zero \n\n");
       break;
 
-      case 'a': // Read all memory
+      case 'a': // Read all Flash structure without loading data - used to debug the flash ring buffer state and retrieve specific recordings with their header incremental counter
+        fInitialPrintDebug = fPrintDebug;
+        fPrintDebug = true; // to force the display in this specific case
         readDataRecords(false);//does NOT overwrite tabRecords with flash data
+        fPrintDebug = fInitialPrintDebug;
       break;
 
-      case 'r': // Read all memory and overwrite tabRecords with flash data
+      case 'r': // Read all memory and overwrite tabRecords with flash data - optional param beeing the incremental counter value
+
+        if (aInputText[1]) { counterToRead = atoi(&aInputText[1]); serialPrint("counterToRead = ");       serialPrintln(counterToRead); }
         readDataRecords(true);
+        counterToRead = -1;
       break;
 
       case 'd': // display data
         displayRecordsScreen();
       break;
 
-      case 'c': // display data for CSV file
+      case 'c': // display data for CSV file structure
         displayRecordsForCSV();
       break;
 
@@ -82,44 +91,60 @@ int value = 0; // default we read first page
         eraseFlashPagesBeforeWrite (FIRST_USER_FLASH_ADDR , 1); // to force delete of 1st Flash page only
       break;
 
-      case 'w': // store function test
+      case 'l': //used to test RGB led colors
+
+        switch (aInputText[1]) { case 'r': color = RGB_LED_RED; break; case 'g': color = RGB_LED_GREEN; break; case 'b': color = RGB_LED_BLUE; break; default: color = RGB_LED_WHITE; break; }
+        if (aInputText[2] =='1') value = true; else value = false;
+        rgbLedSet (color, value);
+      break;
+
+      case 'w': // Write - force store in flash of current records
         storeDataRecords();
       break;
 
-      case 's': 
+      case 's':  // Search flash records
         searchFlashRecords();
       break;
 
-      case 't': 
+      case 't': // simulate cycle of write with fake data
         testFlash();
       break;
 
-      case 'm': // expect the Flash page index number after 'm'. Eg: m3
+      case 'm': // dump flash memory starting index = start of user flash> expect the Flash page index number after 'm'. Eg: m3
 
-        if (Serial.available()) {
-           c = Serial.read();
-            if (c >= '0' && c <= '9') {  value = c - '0';   }
-        } 
+        if (aInputText[1]) value = atoi(&aInputText[1]);
         dump_memory(FIRST_USER_FLASH_ADDR + (value * FLASH_PAGE_SIZE), FLASH_PAGE_SIZE);
       break;
 
       case 'x': // resetRecords
         
         cRecords = 0;
-        if (fPrintDebug) Serial.println("Records Reset");
+        if (fPrintDebug) serialPrintln("Records Reset");
       break;
     }
   }
 }
 
+extern void wakeUp();
+
 //***************************************
 void timerEvent() 
 //***************************************
 {
-  uint32_t now;
-  uint16_t v;// type of switch oressed
+  uint32_t now,t0;
+  uint16_t v;
   
-  enableAuxiliaries();
+  // restarts all required modules
+  wakeUp();
+  
+  if (PROGRAM_WAKEUP_PERIOD >1000) // We consider that we are in test of power mode; we force cpu to work to measure current
+   {
+      rgbLedFlash(RGB_LED_WHITE, 2,200);
+      
+      // to debug power usage we fore the prg to loop x sec
+      t0= millis();
+      while (millis() - t0 < 3000) delay(1); 
+   }
 
   if (fSwitchedPressed(v))
    {
@@ -149,51 +174,65 @@ void timerEvent()
 
     addDataRecord();
 
-    breathMax = 0;
+    breathMax         = 0;
     lastTimeAddRecord = now; 
-    fCycleStart = true;
-    breathCount = 0;
-    cMoves = 0;
-
+    fCycleStart       = true;
+    breathCount       = 0;
+    cMoves            = 0;
+    cSmallMoves       = 0;
    }
 
   else fCycleStart = false;
 
-  disableAuxiliaries();
+  // DISABLE unused features during sleep
+  prepareToSleep();
 }
 
 //***************************************
 void setup()
 //***************************************
 {
-float v;
- unsigned long t0 = millis();
+ unsigned long t0;
 
+  // 2 vibrations at startup
   motorStart(400,MOTOR_SPEED_HIGH);  delay(300);  motorStart(400,MOTOR_SPEED_HIGH);
 
-  Serial.begin(115200);
- 
-  while (!Serial && millis() - t0 < 2000) {
-    // waits max 2 seconds
-  }
+//-----------
+#ifdef USE_USB // We initiate the serial port
 
-  if (fPrintDebug) Serial.println("BOARD STARTED");
+  //usbPower = (NRF_POWER->USBREGSTATUS & POWER_USBREGSTATUS_VBUSDETECT_Msk); up if VIN voltage, even if no usb connected
+  usbPower = (NRF_USBD->USBADDR != 0);
+
+  if (usbPower) // 5V detected from USB Bus & USB registred
+    {
+      rgbLedFlash (RGB_LED_BLUE , 1, 0);
+      Serial.begin(115200);
+      t0= millis();
+      while (!Serial && millis() - t0 < 2000) delay(10); // waits max 2 seconds. Why??
+      if ((bool) Serial) {    if (fPrintDebug) serialPrintln("USB/Serial port is active"); }
+    }
+
+#else // irrelevant to trace as no serial connected
+  if (fPrintDebug)  fPrintDebug = false;
+  if (fPlotDebug)   fPlotDebug = false;
+  if (fMaxTrace)    fMaxTrace = false;
+#endif
+
+  if (fPrintDebug) serialPrintln("BOARD STARTED");
   
-  if ((bool) Serial) {
-    if (fPrintDebug) Serial.println("Boot. USB/Serial port is active\n");
-  }
+  //if (fPrintDebug)  {  serialPrint("isSoftDeviceEnabled ->"); serialPrintln(isSoftDeviceEnabled());  }
  
-  //if (fPrintDebug)  {  Serial.print("isSoftDeviceEnabled ->"); Serial.println(isSoftDeviceEnabled());  }
- 
-  pinMode(MOTOR_PIN, OUTPUT);
-  analogWrite(MOTOR_PIN, 0);
+  pinMode (MOTOR_PIN, OUTPUT);
+  analogWrite (MOTOR_PIN, 0);
 
-  pinMode(SWITCH_PIN, INPUT_PULLUP);
-  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode (SWITCH_PIN, INPUT_PULLUP);
+  pinMode (LED_BUILTIN, OUTPUT);
 
-  v = readVBAT();
+  rgbLedInit();
+
+  vPower = readVIN();
   if (fPrintDebug)  {
-      Serial.print ("Battery voltage = "); Serial.println (v,3);
+      serialPrint ("Power (V_IN) voltage = "); serialPrintln (vPower,3);
     }
 
 /*
@@ -201,7 +240,7 @@ float v;
     {
       if (fPrintDebug)
         {
-          Serial.print ("WARNING: Battery voltage is too low. Switch systemOff. Voltage = "); Serial.println (v,3);
+          serialPrint ("WARNING: Battery voltage is too low. Switch systemOff. Voltage = "); serialPrintln (v,3);
         }
       digitalWrite(LED_BUILTIN, LOW); motorStart(200,150);  digitalWrite(LED_BUILTIN, HIGH); delay(200); digitalWrite(LED_BUILTIN, LOW); motorStart(200,150);digitalWrite(LED_BUILTIN, HIGH);
       delay (5000); // we let time in case we want to update the software before is goes to systemoff (no way to update the bord when it is systemOff)
@@ -209,15 +248,16 @@ float v;
     }
 */
   initIMU();
-  delay(100);
+  //delay(100);
+  rgbLedFlash(RGB_LED_GREEN, 2,200);
   calibrateGyro();
+
+  initPowerSettings(); // cut all useless stuff
 
   setTickPeriodMs(PROGRAM_WAKEUP_PERIOD); // ms
   rtc2_start();
 
   programStartMs = 0;
-
-  flashLed(2,200);
 }
 
 //***************************************
@@ -230,40 +270,65 @@ sleep_until_irq();
 }
 
 //****************************
-// consommation without call to disableAuxiliaries: 0.13 mA (130uA)
-// avec en plus disableIMU: 0.12 mA
-
-void disableAuxiliaries()
+void initPowerSettings()
 {
-NRF_SAADC->ENABLE = 0;
 
-//  disableIMU();
+  //microphone_hw_off();
+  //uart1_hw_off(); // no change in power...
 
-  //Serial.flush();
-  //Serial.end();
+  NRF_SAADC->ENABLE = 0; // stops ADC converter - could be done once at startup, and activated only when reading vBat or Vin
 
+  NRF_RADIO->POWER = 0;   // Disable 2.4GHz RADIO block (BLE/ESB/anything) ---useless, it seems current is equal with this line in comments
 
-  // IMU.sleep Inutile en SYSTEM OFF (power cut)
-  //IMU.sleep();
+  if ( usbPower == false ) // cut all USB - DANGEROUS!!
+    {
+      NRF_USBD->USBPULLUP = 0;   // Disconnect D+ pull-up (logical USB detach from host)  // CONNECT = Disabled
 
-  /*if (flash.begin()) {
-    flash.deepPowerDown();  // ~1 mA économisé
-  }*/
+      // 2) Optional: put USBD in low-power mode (if it was suspended)
+      // NRF_USBD->LOWPOWER = 1;    // Enable USBD low-power mode
 
-  /* GPIO flottants → entrée pull-down
-  for (uint8_t pin = 0; pin < 32; pin++) {
-    pinMode(pin, INPUT_PULLDOWN);
-  }*/
+      // 3) Disable the USBD peripheral . Note: ensure no EasyDMA transfer is ongoing before disabling
+      NRF_USBD->ENABLE = 0;         // USBD disabled, PHY/regulator off
+    }
+  
+}
 
-//  __disable_irq(); => NE PAS UILISER: ca bloqie l usb pour mettre a jour la carte!!
+//****************************
+// Note: power consumption without call to disableAuxiliaries: 0.13 mA (130uA)
+// with call to disableIMU: 0.12 mA, but then issues when reading accelero
+
+void prepareToSleep()
+{
+  
+ //if (fPrintDebug)   {    sprintf (aDebug, "NRF_SAADC->ENABLE = %d , NRF_RADIO->POWER =%d ", NRF_SAADC->ENABLE , NRF_RADIO->POWER);    serialPrintln(aDebug);   }
+
+  // --- 2) Stop HFCLK (if any lib started it) ---
+  NRF_CLOCK->TASKS_HFCLKSTOP = 1;
+
+  // --- 3) Select low-power sub mode in System ON ---
+  NRF_POWER->TASKS_LOWPWR = 1;
+
+// tentatives to save power not really effective
+//Wire.end(); //no effect
+//i2c_hw_off_safe();
+//disableIMU();
+//Serial.flush();
+//Serial.end();
+// IMU.sleep Inutile en SYSTEM OFF (power cut)
+
+//if (flash.begin()) {
+//  flash.deepPowerDown();  // ~1 mA économisé
+
 }
 
 //************************
-void enableAuxiliaries()
+void wakeUp()
 {
-NRF_SAADC->ENABLE = 1; // enable ADC
+// tentatives not effective...
 
-//enableIMU(); => Warning. apres disable/enableIMO le gyro retourne souvent n/importe quoi
+//i2c_hw_on_safe();
+//Wire.begin(); 
+//enableIMU();
 //initIMU();
 //delay(10);
 // IMU.begin();

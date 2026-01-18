@@ -10,8 +10,8 @@ Architecture :
 */
 
 //#include <nrfx_nvmc.h>
-#include <nrf_nvmc.h>
-#include <nrf.h>   // pour NRF_NVMC
+//#include <nrf_nvmc.h>
+//#include <nrf.h>   // pour NRF_NVMC
 
 //#include <nrf_sdm.h> // can only be used if softDevice = true. It is false for me... for fct  sd_flash_page_erase
 
@@ -82,7 +82,7 @@ char a[255];
  if (fPrintDebug)
   {
       sprintf (a, ">> Call to flash_write_words (dst_addr = 0x%08lX, words(4B)=%d. size (Bytes)=%d). ", dst_addr, words , words*4 );
-      Serial.print(a);
+      serialPrint(a);
   }
 
 if ( !data || words == 0) return false;
@@ -98,7 +98,7 @@ uint32_t maxBytes = LAST_USER_FLASH_ADDR - dst_addr;
 if (bytes > maxBytes) return false;
 
  if (fPrintDebug)  {
-      Serial.println( " All checks OK");
+      serialPrintln( " All checks OK");
   }
 
 //  if ( (dst_addr < FIRST_USER_FLASH_ADDR) || (dst_addr + ( words * 4) > LAST_USER_FLASH_ADDR) ) return false;
@@ -163,7 +163,7 @@ void eraseFlashPagesBeforeWrite (uint32_t addrWrite, uint16_t sWrite)
   char a[256];
 
   if (fPrintDebug) {
-      Serial.print (">> Call to eraseFlashPagesBeforeWrite . Checking params ...");
+      serialPrint (">> Call to eraseFlashPagesBeforeWrite . Checking params ...");
   }
 
   if (sWrite == 0) return;
@@ -182,20 +182,20 @@ void eraseFlashPagesBeforeWrite (uint32_t addrWrite, uint16_t sWrite)
   if (fPrintDebug)
   {
       sprintf (a, "OK (addrWrite= 0x%08lX, sWrite=%d). pageStart = 0x%08lX, pageEnd = 0x%08lX, endAddr = 0x%08lX", addrWrite , sWrite , pageStart, pageEnd , endAddr );
-      Serial.println(a);
+      serialPrintln(a);
   }
 
   if ( (addrWrite & (FLASH_PAGE_SIZE - 1)) != 0) // addrWrite is NOT at a start of page
    {
     pageStart += FLASH_PAGE_SIZE; // no need to delete it: it had been previsouly deleted during the previous Erase/write process.
-    //if (fPrintDebug) { Serial.println ("->addrWrite is NOT at a start of page: pageStart +=FLASH_PAGE_SIZE ");}
+    //if (fPrintDebug) { serialPrintln ("->addrWrite is NOT at a start of page: pageStart +=FLASH_PAGE_SIZE ");}
    }
 
   for (uint32_t page = pageStart; page <= pageEnd; page += FLASH_PAGE_SIZE) // we include pageEnd (<=)
   {
     if (fPrintDebug)   {
        sprintf (a, ">> Erase Flash Page. @: 0x%08lX", page);
-       Serial.println(a);
+       serialPrintln(a);
     }
 
     (void)flash_erase_page(page);
@@ -226,7 +226,7 @@ else addr = flash_nextWriteAddr; // points to the free address where to write th
 
 flash_lastCounter++;
 
-if (fPrintDebug) { sprintf(a , ">> Call to StoreDataRecords. cRecords = %d, flash_cRecords = %d, flash_Counter=%d, flash_nextWriteAddr= 0x%08lX", cRecords, flash_cRecords, flash_lastCounter, flash_nextWriteAddr); Serial.println(a); }
+if (fPrintDebug) { sprintf(a , ">> Call to StoreDataRecords. cRecords = %d, flash_cRecords = %d, flash_Counter=%d, flash_nextWriteAddr= 0x%08lX", cRecords, flash_cRecords, flash_lastCounter, flash_nextWriteAddr); serialPrintln(a); }
 sWrite = cRecords * (sizeof (recordData_t));
 
 if (sWrite > USER_FLASH_SIZE - sizeof(header)) // if total including header does not fit in the user flash size, we suppress lasts records
@@ -242,7 +242,7 @@ if (sWrite > USER_FLASH_SIZE - sizeof(header)) // if total including header does
   if (fPrintDebug)
     {
       sprintf(a, "storeDataRecords - WARNING: data too big. Truncate to %d records (%d bytes)", cRecords , sWrite);
-      Serial.println(a); 
+      serialPrintln(a); 
     }
 }
 
@@ -256,6 +256,9 @@ header.cRecords = cRecords;
 header.biasGx = biasGx;
 header.biasGy = biasGy;
 header.biasGz = biasGz;
+
+//vPower = readVIN();
+header.vPower = (uint16_t) (vPower *1000);
 
 eraseFlashPagesBeforeWrite(addr , sizeof (header) );
 
@@ -272,7 +275,7 @@ if (addr + sWrite > LAST_USER_FLASH_ADDR) // data is too long to fit inside the 
 
   if (fPrintDebug)    {
       sprintf(a, "storeDataRecords - Need to cut data in 2 blocs. First bloc: %d records. size=%d", cRecordsEndFlash , cRecordsEndFlash *sizeof(recordData_t));
-      Serial.println(a); 
+      serialPrintln(a); 
     }
 
   eraseFlashPagesBeforeWrite(addr , cRecordsEndFlash * (sizeof (recordData_t)) );
@@ -289,7 +292,7 @@ ret = flash_write_words( addr , (uint32_t*)&tabRecords[cRecordsEndFlash], cRecor
 
   if (fPrintDebug)    {
       sprintf(a, "storeDataRecords - Last (or only) bloc: %d records. Size = %d", cRecordsLastBloc , cRecordsLastBloc *sizeof(recordData_t) );
-      Serial.println(a); 
+      serialPrintln(a); 
     }
 
 }
@@ -312,22 +315,19 @@ for ( addr = FIRST_USER_FLASH_ADDR, i = 0; addr < LAST_USER_FLASH_ADDR ; addr +=
   {
    p= (recordHead_t *) addr;
 
-   /*pour debug: 
-   if (addr == FIRST_USER_FLASH_ADDR)
-   {
-    //dump_flash(addr, sizeof (recordHead_t));/
-    sprintf (a , " Magics= %02X , %02X , %02X. counter = %d", p->magic1 , p->magic2 , p->magic3 , p->counter);
-    Serial.println (a);
-   }*/
-
    if ( (p->magic1 == MAGIC_NUMBER_HEAD_1) && (p->magic2 == MAGIC_NUMBER_HEAD_2) && (p->magic3 ==MAGIC_NUMBER_HEAD_3) )
     {
       if (fPrintDebug)
         {
-            sprintf (a, " Header scan - found at @: 0x%08lX. Counter = %d. cRecords = %d" , addr , p->counter, p->cRecords);
-            Serial.println (a);
+            sprintf (a, " Header scan - found at @: 0x%08lX. Counter = %d. cRecords = %d. vPower = %d." , addr , p->counter, p->cRecords, p->vPower);
+            serialPrintln (a);
         }
 
+      if (counterToRead && (counterToRead == p->counter) ) // we search for a specific counter, we found it
+      {
+          flash_addrHeaderWithCounterMax = addr;
+          addr < LAST_USER_FLASH_ADDR; // dirty way to force exiting the for loop...
+      }
       if ( (i == 0) || (p->counter > flash_counterMax)) // in case the first bloc that we read is a header
         {
 
@@ -339,12 +339,12 @@ for ( addr = FIRST_USER_FLASH_ADDR, i = 0; addr < LAST_USER_FLASH_ADDR ; addr +=
 
 if (fPrintDebug && fMaxTrace) // display Flash info
 {
-  Serial.println("===============================================");
-  Serial.println(" Flash memory - User storage info: ");
+  serialPrintln("===============================================");
+  serialPrintln(" Flash memory - User storage info: ");
   sprintf (a, " User Memory @start: 0x%08lX, @end: 0x%08lX , Length: 0x%04X (%d bytes) , #Flash Pages of 4K: %d" , FIRST_USER_FLASH_ADDR , LAST_USER_FLASH_ADDR, LAST_USER_FLASH_ADDR- FIRST_USER_FLASH_ADDR , LAST_USER_FLASH_ADDR- FIRST_USER_FLASH_ADDR , (LAST_USER_FLASH_ADDR - FIRST_USER_FLASH_ADDR)/4096); 
-  Serial.println (a);
+  serialPrintln (a);
   sprintf (a, "# of data records space on Flash: %d", i);
-  Serial.println (a);
+  serialPrintln (a);
 }
 
 if (flash_addrHeaderWithCounterMax == -1) // no data found
@@ -352,7 +352,7 @@ if (flash_addrHeaderWithCounterMax == -1) // no data found
   flash_lastCounter = 0;
   flash_cRecords = 0;
 
-  if (fPrintDebug)      {     Serial.println("* WARNING *: no data found on flash");Serial.println("===============================================");    }
+  if (fPrintDebug)      {     serialPrintln("* WARNING *: no data found on flash");serialPrintln("===============================================");    }
   
   return false;
  }
@@ -379,7 +379,7 @@ else // there are valid data records on flash
     if (fPrintDebug)
     {
       sprintf (a, "Highest counter Data header found on flash at @ 0x%08lX . flash_lastCounter# = %d. flash_cRecords = %d", flash_addrHeaderWithCounterMax , flash_lastCounter , flash_cRecords);
-      Serial.println(a);
+      serialPrintln(a);
     }
   }
 
@@ -451,7 +451,7 @@ if (fOverwriteTabRecords) cRecords = flash_cRecords;
 if (fPrintDebug)
 {
   sprintf (a, ">> Call to readDataRecords. flash_nextWriteAddr= 0x%08lX , cRecords = %d , flash_cRecords = %d ", flash_nextWriteAddr, cRecords , flash_cRecords );
-  Serial.println (a);
+  serialPrintln (a);
 }
 
 // should we ignore the test for each start of page? as we dont delete if it is a start of page. => if (flash_nextWriteAddr != FIRST_USER_FLASH_ADDR)
@@ -459,7 +459,7 @@ recordHead_t *p;
 p = (recordHead_t*) flash_nextWriteAddr;
 if (p->magic1 != 0xFF || p->magic2 != 0xFF ||p->magic3 != 0xFF)
  {
-  if (fPrintDebug) { Serial.println (" * WARNING * : flash_nextWriteAddr is not empty! means storage structure pb IF flash_nextWriteAddr is not aligned om a page start ");}
+  if (fPrintDebug) { serialPrintln (" * WARNING * : flash_nextWriteAddr is not empty! means storage structure pb IF flash_nextWriteAddr is not aligned om a page start ");}
  }
   
 }
@@ -472,13 +472,13 @@ char a[256];
 uint i;
 
 sprintf ( a, "====== tabRecords (%d) ======" , cRecords);
-Serial.println(a);
-Serial.println("Rec#:     |\tTime|\tPos|\t Bpm|\tBmax\tcMoves");
+serialPrintln(a);
+serialPrintln("Rec#:     |\tTime|\tPos|\t Bpm|\tBmax\tcMoves\tcSmallMoves");
 
 for (i=0; i< cRecords ; i++)
   {
-  sprintf(a, "Rec#: %03d |\t %02d |\t %02d |\t %02d |\t %02d |\t %02d ", i , tabRecords[i].time, tabRecords[i].position, tabRecords[i].breathPerMinut , tabRecords[i].breathMax, tabRecords[i].cMoves);
-   Serial.println(a);
+  sprintf(a, "Rec#: %03d |\t %02d |\t %02d |\t %02d |\t %02d |\t %02d |\t %02d ", i , tabRecords[i].time, tabRecords[i].position, tabRecords[i].breathPerMinut , tabRecords[i].breathMax, tabRecords[i].cMoves, tabRecords[i].cSmallMoves);
+   serialPrintln(a);
   }
 }
 
@@ -489,12 +489,12 @@ void displayRecordsForCSV()
 char a[256];
 uint i;
 
-Serial.println("Index;Time;Position;BreathPerMinute;BreathMax;cMoves");
+serialPrintln("Index;Time;Position;BreathPerMinute;BreathMax;cMoves;cSmallMoves");
 
 for (i=0; i< cRecords ; i++)
   {
-  sprintf(a, "%03d;%02d;%02d;%02d;%02d;%02d", i , tabRecords[i].time, tabRecords[i].position, tabRecords[i].breathPerMinut , tabRecords[i].breathMax, tabRecords[i].cMoves);
-   Serial.println(a);
+  sprintf(a, "%03d;%02d;%02d;%02d;%02d;%02d;%02d", i , tabRecords[i].time, tabRecords[i].position, tabRecords[i].breathPerMinut , tabRecords[i].breathMax, tabRecords[i].cMoves , tabRecords[i].cSmallMoves);
+   serialPrintln(a);
   }
 }
 
@@ -504,23 +504,29 @@ void addDataRecord()
 {
 if(cRecords < N_RECORDS_MAX)
  {
-  tabRecords[cRecords].time = (millis() - programStartMs) / 1000;
+  tabRecords[cRecords].time = acceleroMax; // for time storage: (millis() - programStartMs) / 1000;
+  acceleroMax = 0;
+
   tabRecords[cRecords].position = position; 
   tabRecords[cRecords].breathPerMinut = breathCount;
   tabRecords[cRecords].breathMax = breathMax/1000;
   tabRecords[cRecords].cMoves = cMoves;
+  tabRecords[cRecords].cSmallMoves = cSmallMoves;
 
   if (fPrintDebug) 
     {
-      Serial.print("[Store record # "); Serial.print (cRecords); Serial.print(" ]: "); 
-      Serial.print (tabRecords[cRecords].time); Serial.print ("|");
-      Serial.print (tabRecords[cRecords].position);Serial.print ("|");
-      Serial.print (tabRecords[cRecords].breathPerMinut);Serial.print ("|");
-      Serial.print (tabRecords[cRecords].breathMax);Serial.print ("|");
-      Serial.println (tabRecords[cRecords].cMoves);
+      serialPrint("[Store record # "); serialPrint (cRecords); serialPrint(" ]: "); 
+      serialPrint (tabRecords[cRecords].time); serialPrint ("|");
+      serialPrint (tabRecords[cRecords].position);serialPrint ("|");
+      serialPrint (tabRecords[cRecords].breathPerMinut);serialPrint ("|");
+      serialPrint (tabRecords[cRecords].breathMax);serialPrint ("|");
+      serialPrint (tabRecords[cRecords].cMoves); serialPrint ("|");
+      serialPrintln (tabRecords[cRecords].cSmallMoves);
+
     }
  }
 cRecords++;
+
 }
 
 //******************************
@@ -530,7 +536,7 @@ void testFlash()
 uint16_t i;
 if (fPrintDebug)
 {
-  Serial.println(">> Call to testFlash");
+  serialPrintln(">> Call to testFlash");
 }
 for ( cRecords =0, i = 0; cRecords < 600 ; cRecords++) //600 = 10 hours= 1 good night
  {

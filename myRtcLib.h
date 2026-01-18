@@ -1,5 +1,3 @@
-#include "nrf.h"
-
 static volatile bool tick = false;
 
 // 👇 Période en millisecondes (modifiable à chaud)
