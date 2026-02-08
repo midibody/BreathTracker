@@ -1,4 +1,4 @@
-# Sleep Monitoring: Breath, apneas, movments, and snoring
+# Sleep monitoring: breath, apneas, movments, and snoring
 
 **Tracking breathing, sleep Position, apnea and snoring, with vibrating alerts and data graphs generation**
 
