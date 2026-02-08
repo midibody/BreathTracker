@@ -96,6 +96,7 @@ To avoid false detections caused by noise of movements, audio detection is gated
 Only sound events that occur while the body is relatively still are considered valid snoring candidates.
 
 When repeated snoring events occur within a defined time window, the system triggers a vibration pattern via a motor to prompt a physical response from the sleeper.
+More details on snoring here:[spec_snoring.md] (https://github.com/midibody/BreathTracker/blob/d7b09e1053e7e866622c515b7f520855b0f441e5/Spec_Snoring.md)
 
 ---
 
