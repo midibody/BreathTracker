@@ -1,26 +1,29 @@
-# SleepBreath
+# Sleep Monitoring: Breath, apneas, movments, and snoring
 
-**Tracking Breathing, Sleep Position and Apnea Using Only an IMU**
+**Tracking breathing, sleep Position, apnea and snoring, with vibrating alerts and data graphs generation**
 
-SleepBreath is a small, battery-powered, open‑source sleep monitoring device based on a single inertial sensor (IMU). It extracts breathing rate, sleep position, movements, and suspected sleep apnea events by measuring low‑frequency micro‑movements of the human body.
+'SleepMonitoring' is a small, battery-powered, open‑source sleep monitoring device based on a single inertial sensor (IMU). 
+It extracts breathing rate, sleep position, movements, suspected sleep apnea events by measuring low‑frequency micro‑movements of the human body.
+It also measures audio noises to detect snoring.
+Alerts can be triggered in case of position on the back that favors apneas and snoring. Snoring volume can also trigger vibration alerts.
 
-The project is designed for experimentation, transparency, and reproducibility. No microphones, cameras, cloud services, or machine learning models are used.
-the software is Arduino based in C.
+The project is designed for experimentation.
+The software is Arduino based, in C.
+The user interface generating graphics is written in Python.
+
 
 ---
-
 ## Key Features
 
 * Breathing rate estimation (breaths per minute)
 * Detection of suspected sleep apnea events (breathing pauses)
 * Sleep position detection (back, sides, stomach, upright)
 * Movements detection/counting and discrimination from breathing
-* Optional vibration feedback to discourage sleeping on the back, as people tend to have apneas only when on the back
-* Breath counters stored on Flash data, with readout directly from the Arduino IDE, by sending commands to the board
+* Optional vibration feedback to discourage sleeping on the back, as people tend to have apneas or/and snore only when on the back
+* Optional vibrations when snoring event is captured by microphone.
 * Local data logging to internal flash memory (once per minute)
+* Data captured can be displayed on computer by sending commands to the board from a user interface, through the USB connection.
 * Circular flash memory management to maximize flash lifetime
-
-  
 
 <img height="323" alt="image" src="https://github.com/user-attachments/assets/706c1a73-475a-484c-8c9d-2677173494c2" /> <img width="321" height="323" alt="image" src="https://github.com/user-attachments/assets/eec2eb92-bf1a-4dcd-afd9-9e24120603fb" />
 <img width="600" height="230" alt="image" src="https://github.com/user-attachments/assets/97098383-4444-4e41-a7c8-a05990deb762" />
@@ -28,9 +31,9 @@ the software is Arduino based in C.
 
 ## Hardware Overview
 
-* **MCU:** Seeed Studio XIAO nRF52840
+* **MCU:** Seeed Studio XIAO nRF52840 Sense (Sense specific version is required only if the snoring detection is used, as it includes a PDM mic to capture sound)
 * **IMU (integrated into the XIAO nRF52840:** LSM6DS3 (3‑axis accelerometer + 3‑axis gyroscope)
-* Status LED
+* Status RGB LED
 * Push button
 * Vibration motor
 * Battery powered
@@ -83,6 +86,17 @@ These events are logged for later offline analysis. The device does **not** prov
 
 If enabled, a vibration motor is triggered when the subject remains on their back for too long. This gentle feedback encourages a spontaneous change to a side position, a common technique used in positional therapy.
 
+### Snoring detection (Vibration Feedback)
+
+Its purpose is to detect sustained snoring sounds during sleep and trigger a vibration alert that encourages the sleeper to change position or briefly wake up, reducing or stopping snoring episodes.
+The system continuously monitors ambient sound using the onboard PDM microphone.
+Instead of reacting to raw sound peaks, it estimates a short-term sound energy (volume) and compares it against adaptive thresholds that follow the background noise level.
+
+To avoid false detections caused by noise of movements, audio detection is gated by motion analysis using inertial sensor data.
+Only sound events that occur while the body is relatively still are considered valid snoring candidates.
+
+When repeated snoring events occur within a defined time window, the system triggers a vibration pattern via a motor to prompt a physical response from the sleeper.
+
 ---
 
 ## Data Logging and Flash memory Management
@@ -90,10 +104,10 @@ If enabled, a vibration motor is triggered when the subject remains on their bac
 * Data is recorded once per minute
 * Logged data includes:
 
-  * breathing rate
+  * breathing rate (average per minute and max per minute)
   * sleep position: LEFT, RIGHT, LEFT, STOMAC, STANDING
   * movements count
-  * Max breathing duration per minut (to detect apnea events)
+  * Snorings count
 
 To preserve flash memory lifetime, the firmware implements:
 
@@ -107,13 +121,8 @@ This allows long‑term use without premature flash degradation.
 
 ## Reading Data from Flash
 
-Recorded data can be read directly using the Arduino IDE:
+Recorded data can be read directly using the Arduino IDE or the specific monitoring tool that can send debugging commands to the board and build monitoring graphs from the data retrieved on the board.
 
-* via serial connection
-* no external tools required
-* no custom bootloader
-
-This makes data extraction and analysis simple for developers and researchers.
 Example of graph built from the captured data:
 <img width="992" height="362" alt="image" src="https://github.com/user-attachments/assets/f93b9efc-53d9-4f7c-a097-62116f91d6d6" />
 
@@ -123,12 +132,13 @@ Example of graph built from the captured data:
 
 The device is designed for overnight operation on battery power. Low‑power modes of both the MCU and IMU are used whenever possible to minimize consumption.
 
+There is still work to be done in this domain to further reduce power consumption.
+
 ---
 
 ## Project Status
 
-* Firmware: functional and tested, certainly still some bugs or corner cases
-* Hardware: stable prototype
+Functional and tested, certainly still some bugs or corner cases
 
 ---
 
